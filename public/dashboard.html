@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notification System - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        body { background: #f8f9fa; }
+        .stat-card { transition: transform 0.2s; cursor: pointer; }
+        .stat-card:hover { transform: translateY(-5px); }
+        .badge-pending { background: #ffc107; }
+        .badge-queued { background: #17a2b8; }
+        .badge-processing { background: #007bff; }
+        .badge-sent { background: #28a745; }
+        .badge-failed { background: #dc3545; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">📧 Notification System</span>
+            <span class="text-white">Dashboard</span>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <!-- Stats Cards -->
+        <div class="row mb-4" id="statsCards">
+            <div class="col-md-3">
+                <div class="card stat-card text-white bg-primary">
+                    <div class="card-body">
+                        <h5 class="card-title">Total Sent</h5>
+                        <h2 class="mb-0" id="totalSent">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card text-white bg-success">
+                    <div class="card-body">
+                        <h5 class="card-title">Successful</h5>
+                        <h2 class="mb-0" id="totalSuccess">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card text-white bg-danger">
+                    <div class="card-body">
+                        <h5 class="card-title">Failed</h5>
+                        <h2 class="mb-0" id="totalFailed">-</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card text-white bg-warning">
+                    <div class="card-body">
+                        <h5 class="card-title">Pending</h5>
+                        <h2 class="mb-0" id="totalPending">-</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Notifications by Channel</strong>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="channelChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Status Distribution</strong>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Send Test Notification -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <strong>Send Test Notification</strong>
+                    </div>
+                    <div class="card-body">
+                        <form id="sendForm">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <input type="email" class="form-control" id="recipient" placeholder="Email" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <select class="form-control" id="channel">
+                                        <option value="email">Email</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" class="form-control" id="subject" placeholder="Subject" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <input type="text" class="form-control" id="message" placeholder="Message" required>
+                                </div>
+                                <div class="col-md-2">
+                                    <button type="submit" class="btn btn-primary w-100">Send</button>
+                                </div>
+                            </div>
+                        </form>
+                        <div id="sendResult" class="mt-3"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Notifications -->
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>Recent Notifications</strong>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadData()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="recentTable">
+                                <thead>
+                                    <tr>
+                                        <th>UUID</th>
+                                        <th>Recipient</th>
+                                        <th>Channel</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th>Sent</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentBody">
+                                    <tr>
+                                        <td colspan="7" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let channelChart, statusChart;
+
+        async function loadData() {
+            try {
+                const [statsRes, recentRes] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/recent?limit=20')
+                ]);
+
+                const stats = await statsRes.json();
+                const recent = await recentRes.json();
+
+                updateStats(stats.stats);
+                updateCharts(stats.stats);
+                updateRecentTable(recent.notifications);
+            } catch (error) {
+                console.error('Error loading data:', error);
+            }
+        }
+
+        function updateStats(stats) {
+            const totals = { sent: 0, failed: 0, pending: 0, queued: 0 };
+            
+            stats.forEach(stat => {
+                if (stat.status === 'sent') totals.sent += parseInt(stat.count);
+                else if (stat.status === 'failed') totals.failed += parseInt(stat.count);
+                else if (stat.status === 'pending') totals.pending += parseInt(stat.count);
+                else if (stat.status === 'queued') totals.queued += parseInt(stat.count);
+            });
+
+            document.getElementById('totalSent').textContent = totals.sent + totals.failed;
+            document.getElementById('totalSuccess').textContent = totals.sent;
+            document.getElementById('totalFailed').textContent = totals.failed;
+            document.getElementById('totalPending').textContent = totals.pending + totals.queued;
+        }
+
+        function updateCharts(stats) {
+            const channelData = {};
+            const statusData = { pending: 0, queued: 0, processing: 0, sent: 0, failed: 0 };
+
+            stats.forEach(stat => {
+                channelData[stat.channel] = (channelData[stat.channel] || 0) + parseInt(stat.count);
+                statusData[stat.status] = (statusData[stat.status] || 0) + parseInt(stat.count);
+            });
+
+            if (channelChart) channelChart.destroy();
+            if (statusChart) statusChart.destroy();
+
+            channelChart = new Chart(document.getElementById('channelChart'), {
+                type: 'pie',
+                data: {
+                    labels: Object.keys(channelData),
+                    datasets: [{
+                        data: Object.values(channelData),
+                        backgroundColor: ['#007bff', '#28a745', '#ffc107', '#dc3545']
+                    }]
+                }
+            });
+
+            statusChart = new Chart(document.getElementById('statusChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(statusData),
+                    datasets: [{
+                        data: Object.values(statusData),
+                        backgroundColor: ['#ffc107', '#17a2b8', '#007bff', '#28a745', '#dc3545']
+                    }]
+                }
+            });
+        }
+
+        function updateRecentTable(notifications) {
+            const tbody = document.getElementById('recentBody');
+            
+            if (notifications.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">No notifications yet</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = notifications.map(n => `
+                <tr>
+                    <td><code>${n.uuid.substring(0, 8)}</code></td>
+                    <td>${n.recipient}</td>
+                    <td><span class="badge bg-info">${n.channel}</span></td>
+                    <td>${n.subject || '-'}</td>
+                    <td><span class="badge badge-${n.status}">${n.status}</span></td>
+                    <td>${new Date(n.created_at).toLocaleString()}</td>
+                    <td>${n.sent_at ? new Date(n.sent_at).toLocaleString() : '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        document.getElementById('sendForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const recipient = document.getElementById('recipient').value;
+            const channel = document.getElementById('channel').value;
+            const subject = document.getElementById('subject').value;
+            const message = document.getElementById('message').value;
+
+            try {
+                const response = await fetch('/api/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ recipient, channel, subject, message })
+                });
+
+                const result = await response.json();
+                const resultDiv = document.getElementById('sendResult');
+                
+                if (result.success) {
+                    resultDiv.innerHTML = `<div class="alert alert-success">✓ Notification queued with UUID: ${result.uuid}</div>`;
+                    setTimeout(() => loadData(), 1000);
+                } else {
+                    resultDiv.innerHTML = `<div class="alert alert-danger">✗ Error: ${result.error}</div>`;
+                }
+            } catch (error) {
+                document.getElementById('sendResult').innerHTML = 
+                    `<div class="alert alert-danger">✗ Error: ${error.message}</div>`;
+            }
+        });
+
+        // Initial load and auto-refresh
+        loadData();
+        setInterval(loadData, 5000);
+    </script>
+</body>
+</html>
